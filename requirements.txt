@@ -1,5 +1,0 @@
-streamlit
-pandas
-rapidfuzz
-openpyxl
-reportlab
