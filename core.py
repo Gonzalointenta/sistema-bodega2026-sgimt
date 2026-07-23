@@ -1631,25 +1631,44 @@ def estadisticas_consumo(desde=None, hasta=None, solo_cerradas=True, db_path: st
 
 
 def historial_filtrado(desde=None, hasta=None, solicitante=None, area=None, oficina=None,
-                       estados=None, db_path: str = DB_PATH) -> pd.DataFrame:
+                       estados=None, producto=None, db_path: str = DB_PATH) -> pd.DataFrame:
     """
     Una fila por solicitud, con los filtros del buscador del historial.
     desde/hasta son fechas (date o 'YYYY-MM-DD'); el resto son textos que se
     buscan de forma flexible (sin acentos ni mayúsculas, coincidencia parcial).
+
+    producto: filtra las solicitudes que incluyan un insumo determinado. Se
+    puede escribir el nombre registrado en el sistema o el código; el filtro se
+    aplica en la consulta y no después, para que siga siendo rápido cuando haya
+    miles de solicitudes acumuladas.
     """
+    filtro_producto, params = "", []
+    if producto and str(producto).strip():
+        texto = f"%{str(producto).strip().upper()}%"
+        filtro_producto = """
+            WHERE EXISTS (
+                SELECT 1 FROM solicitud_detalle dd
+                JOIN productos pp ON pp.codigo = dd.codigo_producto
+                WHERE dd.solicitud_id = s.id
+                  AND (UPPER(pp.nombre_estandar) LIKE ? OR pp.codigo LIKE ?)
+            )
+        """
+        params = [texto, texto]
+
     conn = get_connection(db_path)
     df = pd.read_sql(
-        """
+        f"""
         SELECT s.folio, s.correlativo, s.fecha_solicitud, s.solicitante,
                s.area_departamento, s.oficina, s.supervisor, s.estado,
                COUNT(d.id) AS n_productos,
                COALESCE(SUM(d.cantidad_solicitada), 0) AS total_unidades
         FROM solicitudes s
         JOIN solicitud_detalle d ON d.solicitud_id = s.id
+        {filtro_producto}
         GROUP BY s.id
         ORDER BY s.fecha_solicitud DESC
         """,
-        conn,
+        conn, params=params,
     )
     conn.close()
     if df.empty:
